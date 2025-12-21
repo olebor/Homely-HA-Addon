@@ -97,8 +97,8 @@ This project is open source! Feel free to contribute by:
 
 ## Credits
 
-This is a fork from [haugeSander/Homely-HA-Addon](https://github.com/haugeSander/Homely-HA-Addon)
-This add-on is based on the [homely-mqtt](https://github.com/yusijs/homely-mqtt/tree/main) project, adapted to work as a Home Assistant add-on.
+- This is a fork from [haugeSander/Homely-HA-Addon](https://github.com/haugeSander/Homely-HA-Addon)
+- This add-on is based on the [homely-mqtt](https://github.com/yusijs/homely-mqtt/tree/main) project, adapted to work as a Home Assistant add-on.
 
 ## License
 
