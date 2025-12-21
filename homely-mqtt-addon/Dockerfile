@@ -1,8 +1,8 @@
 ARG BUILD_FROM=ghcr.io/home-assistant/amd64-base:3.19
 FROM ${BUILD_FROM}
 
-# Install node and other dependencies
-RUN apk add --no-cache nodejs npm python3 make g++
+# Install Node.js 18 and other dependencies
+RUN apk add --no-cache --repository=https://dl-cdn.alpinelinux.org/alpine/v3.18/main nodejs~=18 npm python3 make g++
 
 WORKDIR /app
 
