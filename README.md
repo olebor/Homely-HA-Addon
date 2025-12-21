@@ -24,8 +24,9 @@ This Home Assistant add-on allows you to integrate your Homely devices with Home
 ## Installation
 
 1. Add this repository to your Home Assistant Add-on Store:
+
    ```
-   https://github.com/haugeSander/Homely-HA-Addon
+    https://github.com/olebor/Homely-HA-Addon
    ```
 
 2. Install the "Homely-HA-Addon" add-on from the Add-on Store
@@ -43,7 +44,7 @@ homely:
   username: "your.email@example.com"
   password: "your-homely-password"
 mqtt:
-  host: "core-mosquitto"  # Use this if using the Mosquitto add-on
+  host: "core-mosquitto" # Use this if using the Mosquitto add-on
   port: 1883
   username: "mqtt-user"
   password: "mqtt-password"
@@ -68,6 +69,7 @@ Devices are automatically discovered and created in Home Assistant using MQTT di
 ### Common Issues
 
 1. Add-on won't start:
+
    - Verify your Homely credentials
    - Check MQTT connection details
    - Review the add-on logs
@@ -80,6 +82,7 @@ Devices are automatically discovered and created in Home Assistant using MQTT di
 ### Logs
 
 To view detailed logs:
+
 1. Go to the add-on page in Home Assistant
 2. Click on the "Log" tab
 3. Look for any error messages or warnings
@@ -87,12 +90,14 @@ To view detailed logs:
 ## Contributing
 
 This project is open source! Feel free to contribute by:
+
 - Reporting bugs
 - Suggesting features
 - Submitting pull requests
 
 ## Credits
 
+This is a fork from [haugeSander/Homely-HA-Addon](https://github.com/haugeSander/Homely-HA-Addon)
 This add-on is based on the [homely-mqtt](https://github.com/yusijs/homely-mqtt/tree/main) project, adapted to work as a Home Assistant add-on.
 
 ## License
