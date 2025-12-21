@@ -1,5 +1,5 @@
 name: "Homely MQTT Bridge"
-version: "1.0.0"
+version: "1.1.0"
 slug: "homely_mqtt_bridge"
 description: "Bridge between Homely devices and MQTT using existing homely-mqtt library"
 url: "https://github.com/olebor/Homely-HA-Addon"
