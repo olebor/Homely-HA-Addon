@@ -42,13 +42,15 @@ export type Device = {
 };
 
 /**
- * Non-exhaustive list of features. These are all the ones I know about for now, but others may be relevant in the future (e.g. locks)
+ * Non-exhaustive list of features. These are all the ones I know about for now, but others may be relevant in the future.
  */
 export type Features = {
   alarm: Alarm;
   temperature: Temperature;
   battery: Battery;
   diagnostic: Diagnostic;
+  lock?: Lock;
+  report?: Report;
 };
 
 export type Alarm = {
@@ -101,4 +103,17 @@ export type Diagnostic = {
 export type DiagnosticStates = {
   networklinkstrength: State<number>;
   networklinkaddress: State<string>;
+};
+
+export type Lock = {
+  states: {
+    state: State<boolean>;
+  };
+};
+
+export type Report = {
+  states: {
+    locked: State<boolean>;
+    event: State<string>;
+  };
 };

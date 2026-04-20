@@ -18,6 +18,12 @@ const wsUri = `wss://${config.get<Config['homely']['host']>('homely.host')}`;
 
 const CONNECT_TIMEOUT_MS = 20_000;
 
+// WS state changes that duplicate a stateName we already publish via another
+// sensor mapping. Silenced to avoid noisy warnings on every lock/unlock cycle.
+const SILENCED_UNMAPPED_STATES = new Set<string>([
+  'report.locked', // duplicates lock.state on Yale Doorman; we publish lock.state instead
+]);
+
 /**
  * Get all locations for the authenticated user.
  */
@@ -83,13 +89,15 @@ function attachEventHandlers(
             where: { device_id_suffix: `${device.id}_${c.stateName}` },
           });
           if (!feature) {
-            logger.warn(
-              `[WS] Feature ${c.feature} -> ${c.stateName} (value=${JSON.stringify(c.value)}, lastUpdated=${c.lastUpdated}) not found for device: ${device.name}`
-            );
-            logger.debug(device);
-            logger.debug(
-              `Query by ${device.id}_${c.stateName} returned 0 results`
-            );
+            if (!SILENCED_UNMAPPED_STATES.has(`${c.feature}.${c.stateName}`)) {
+              logger.warn(
+                `[WS] Feature ${c.feature} -> ${c.stateName} (value=${JSON.stringify(c.value)}, lastUpdated=${c.lastUpdated}) not found for device: ${device.name}`
+              );
+              logger.debug(device);
+              logger.debug(
+                `Query by ${device.id}_${c.stateName} returned 0 results`
+              );
+            }
             continue;
           }
           logger.info(`[WS] Updating state for ${feature.name} to ${c.value}`);

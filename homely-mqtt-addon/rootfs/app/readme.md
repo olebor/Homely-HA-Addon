@@ -14,7 +14,7 @@ In addition some environment variables are required to be set:
 
 ### Caveats
 - The homely API is read-only, so can only read state. Alarm etc cannot be armed.
-- The supported devices are the ones delivered by the Homely API. Some devices are not sent over the api (at the time of writing, this includes at least Yale Doorman, alarm panel ++)
+- The supported devices are the ones delivered by the Homely API. Some devices may still not be sent over the api (e.g. the alarm panel).
 - The alarm itself is only listed as a sensor (text), as it is not possible to arm it.
 
 ### Supported devices

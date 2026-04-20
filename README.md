@@ -12,6 +12,7 @@ This Home Assistant add-on allows you to integrate your Homely devices with Home
   - Sensors
   - Alarms (status only)
   - Motion detectors
+  - Smart locks, e.g. Yale Doorman (status only)
   - Other Zigbee devices supported by the Homely API
 
 ## Prerequisites
@@ -56,7 +57,6 @@ This add-on supports all devices that are accessible through the Homely API. How
 
 - The integration is read-only (you cannot control devices through Home Assistant)
 - Some devices may not be available through the API, including:
-  - Yale Doorman
   - Alarm Panel
   - Other vendor-specific devices
 
