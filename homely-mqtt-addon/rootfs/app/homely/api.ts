@@ -84,13 +84,13 @@ function attachEventHandlers(
           });
           if (!feature) {
             logger.warn(
-              `[WS] Feature ${c.feature} -> ${c.stateName} not found for device: ${device.name}`
+              `[WS] Feature ${c.feature} -> ${c.stateName} (value=${JSON.stringify(c.value)}, lastUpdated=${c.lastUpdated}) not found for device: ${device.name}`
             );
             logger.debug(device);
             logger.debug(
               `Query by ${device.id}_${c.stateName} returned 0 results`
             );
-            return;
+            continue;
           }
           logger.info(`[WS] Updating state for ${feature.name} to ${c.value}`);
           const stateTopic = feature.state_topic;
