@@ -40,7 +40,7 @@ export const createEntitiesMqtt = async () => {
       state_topic,
       entity_category,
     } = d.toJSON();
-    const mqttPayload = {
+    const mqttPayload: Record<string, unknown> = {
       device,
       unique_id,
       name: `${prefix ? `${prefix} ` : ''}${name}`,
@@ -53,6 +53,13 @@ export const createEntitiesMqtt = async () => {
       state_topic,
       entity_category,
     };
+    // HA's binary_sensor `lock` device_class uses ON=unlocked, OFF=locked —
+    // inverted from our publish() which maps boolean true->'ON'. Remap here so
+    // Homely `locked=true` (published as 'ON') registers as HA "off" = locked.
+    if (device_class === 'lock') {
+      mqttPayload.payload_on = 'OFF';
+      mqttPayload.payload_off = 'ON';
+    }
     logger.debug(`Creating home assistant entity:
       
       ${JSON.stringify(mqttPayload, null, 2)}`);

@@ -7,7 +7,7 @@ const sensor: Sensor<Feature<'lock', 'state'>> = {
   type: 'binary_sensor',
   name: 'lock',
   deviceSuffix: 'state',
-  icon: 'mdi:lock',
+  deviceClass: 'lock',
 };
 
 export { sensor };
