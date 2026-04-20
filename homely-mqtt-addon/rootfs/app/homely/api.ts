@@ -4,6 +4,7 @@ import io from 'socket.io-client';
 import { HomelySocket } from '../models/homely-socket';
 import { authenticator } from './auth';
 import { logger } from '../utils/logger';
+import { retryWithBackoff, WS_RETRY } from '../utils/retry';
 import config from 'config';
 import { Config } from '../models/config';
 import { HomelyDevice, HomelyFeature } from '../db';
@@ -14,6 +15,8 @@ const uri = `https://${config.get<Config['homely']['host']>(
   'homely.host'
 )}/homely`;
 const wsUri = `wss://${config.get<Config['homely']['host']>('homely.host')}`;
+
+const CONNECT_TIMEOUT_MS = 20_000;
 
 /**
  * Get all locations for the authenticated user.
@@ -50,37 +53,16 @@ export async function home(locationId: string): Promise<Home> {
   return await res.json();
 }
 
-/**
- * Listen to websocket events from homely updating the state of devices
- * @param locationId
- */
-export async function listenToSocket(locationId: string) {
-  const token = await authenticator.getToken();
-  const socket = io(
-    `${wsUri}?locationId=${locationId}&token=Bearer ${token.access_token}`,
-    {
-      reconnection: false,
-      transports: ['websocket'],
-      autoConnect: true,
-      transportOptions: {
-        polling: {
-          extraHeaders: {
-            Authorization: `Bearer ${token.access_token}`,
-          },
-        },
-      },
-    }
-  );
-  socket.on('connect_error', (err: unknown) => {
-    logger.error(`[WS] Connection error: ${err}`);
-  });
+function attachEventHandlers(
+  socket: SocketIOClient.Socket,
+  locationId: string
+) {
   socket.on('error', (err: unknown) => {
-    logger.error(`[WS] Error: ${err}`);
+    logger.error({ err, locationId }, '[WS] transport error');
   });
-  socket.on('disconnect', (e: string) => {
-    logger.warn(`[WS] Disconnected from homely socket: ${e}`);
-    logger.info('[WS] Reconnecting to homely...');
-    listenToSocket(locationId).catch((e) => logger.error(e));
+  socket.on('disconnect', (reason: string) => {
+    logger.warn({ reason, locationId }, '[WS] Disconnected from homely socket');
+    scheduleReconnect(locationId);
   });
   socket.on('event', async function (data: HomelySocket) {
     logger.trace(data);
@@ -150,5 +132,93 @@ export async function listenToSocket(locationId: string) {
         );
         logger.warn(data);
     }
+  });
+}
+
+/**
+ * Opens a single websocket connection and resolves once it emits `connect`,
+ * or rejects if it emits `connect_error` or exceeds the connect timeout.
+ * Caller is responsible for retrying on rejection. Persistent event handlers
+ * are attached before the connect handshake so early messages aren't dropped.
+ */
+async function connectOnce(locationId: string): Promise<void> {
+  const token = await authenticator.getToken();
+  const socket = io(
+    `${wsUri}?locationId=${locationId}&token=Bearer ${token.access_token}`,
+    {
+      reconnection: false,
+      transports: ['websocket'],
+      autoConnect: true,
+      timeout: CONNECT_TIMEOUT_MS,
+      transportOptions: {
+        polling: {
+          extraHeaders: {
+            Authorization: `Bearer ${token.access_token}`,
+          },
+        },
+      },
+    }
+  );
+
+  attachEventHandlers(socket, locationId);
+
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      socket.removeAllListeners();
+      socket.close();
+      reject(new Error(`[WS] connect timeout after ${CONNECT_TIMEOUT_MS}ms`));
+    }, CONNECT_TIMEOUT_MS);
+
+    socket.once('connect', () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      logger.info(`[WS] Connected to homely for location ${locationId}`);
+      resolve();
+    });
+    socket.once('connect_error', (err: unknown) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.removeAllListeners();
+      socket.close();
+      reject(new Error(`[WS] connect_error: ${err}`));
+    });
+  });
+}
+
+const reconnectingByLocation = new Map<string, boolean>();
+
+function scheduleReconnect(locationId: string) {
+  if (reconnectingByLocation.get(locationId)) {
+    logger.debug(`[WS] Reconnect already in progress for ${locationId}`);
+    return;
+  }
+  reconnectingByLocation.set(locationId, true);
+  logger.info(`[WS] Scheduling reconnect for ${locationId}`);
+  retryWithBackoff(() => connectOnce(locationId), {
+    ...WS_RETRY,
+    label: `ws-reconnect:${locationId}`,
+  })
+    .catch((err) => {
+      logger.error({ err, locationId }, '[WS] Reconnect gave up');
+    })
+    .finally(() => {
+      reconnectingByLocation.set(locationId, false);
+    });
+}
+
+/**
+ * Listen to websocket events from homely updating the state of devices.
+ * Retries the initial connection with exponential backoff until it succeeds.
+ * @param locationId
+ */
+export async function listenToSocket(locationId: string) {
+  await retryWithBackoff(() => connectOnce(locationId), {
+    ...WS_RETRY,
+    label: `ws-connect:${locationId}`,
   });
 }

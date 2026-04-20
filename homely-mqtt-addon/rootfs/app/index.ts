@@ -16,6 +16,7 @@ import {
 import { scheduleJob } from 'node-schedule';
 import { HomelyFeature } from './db';
 import { HomelyAlarmStateToHomeAssistant } from './models/alarm-state';
+import { retryWithBackoff, STARTUP_RETRY } from './utils/retry';
 
 dotenv.config();
 
@@ -37,8 +38,15 @@ if (!process.env.HOMELY_PASSWORD) {
 const pollHomely = (locationId: string) => {
   const schedule = config.get<string | undefined>('polling.schedule');
   scheduleJob(schedule ?? '*/30 * * * *', async () => {
-    const homeData = await home(locationId);
-    await updateAndCreateEntities(homeData);
+    try {
+      const homeData = await home(locationId);
+      await updateAndCreateEntities(homeData);
+    } catch (err) {
+      logger.error(
+        { err, locationId },
+        'Poll failed; will retry on next schedule'
+      );
+    }
   });
 };
 
@@ -81,40 +89,36 @@ process.on('exit', () => {
 
 (async function () {
   await init();
-  try {
-    const homes = await locations();
-    logger.info(`Loaded ${homes.length} homes`);
-    logger.debug(homes);
 
-    try {
-      for (const location of homes) {
-        const homeData = await home(location.locationId);
-        if (process.env.GET_LOCATION) {
-          logger.debug({
-            message: `Getting location info for ${location.name}. The process will exit afterwards`,
-            data: homeData,
-          });
-          process.exit(1);
-        }
-        logger.debug(`Home data retrieved from homely:
-        
-        ${JSON.stringify(homeData, null, 2)}`);
-        await updateAndCreateEntities(homeData);
-        pollHomely(location.locationId);
-        await listenToSocket(location.locationId);
-      }
-    } catch (ex) {
-      logger.fatal({
-        message: `Application encountered a fatal error and will exit.`,
-        error: ex,
-      });
-      process.exit();
-    }
-  } catch (ex) {
-    logger.fatal({
-      message: `Application encountered a fatal error and will exit.`,
-      error: ex,
+  const homes = await retryWithBackoff(() => locations(), {
+    ...STARTUP_RETRY,
+    label: 'startup-locations',
+  });
+  logger.info(`Loaded ${homes.length} homes`);
+  logger.debug(homes);
+
+  for (const location of homes) {
+    const homeData = await retryWithBackoff(() => home(location.locationId), {
+      ...STARTUP_RETRY,
+      label: `startup-home:${location.locationId}`,
     });
-    process.exit();
+    if (process.env.GET_LOCATION) {
+      logger.debug({
+        message: `Getting location info for ${location.name}. The process will exit afterwards`,
+        data: homeData,
+      });
+      process.exit(1);
+    }
+    logger.debug(`Home data retrieved from homely:
+
+        ${JSON.stringify(homeData, null, 2)}`);
+    await updateAndCreateEntities(homeData);
+    pollHomely(location.locationId);
+    listenToSocket(location.locationId).catch((err) =>
+      logger.error(
+        { err, locationId: location.locationId },
+        '[WS] initial connect gave up'
+      )
+    );
   }
 })();

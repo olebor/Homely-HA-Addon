@@ -1,7 +1,10 @@
 import fetch from 'node-fetch';
 import { Token } from '../models/token';
 import { logger } from '../utils/logger';
+import { PermanentError } from '../utils/retry';
 import config from 'config';
+
+const PERMANENT_AUTH_STATUSES = new Set([400, 401, 403]);
 
 const host = config.get<string>('homely.host');
 const uri = `https://${host}/homely`;
@@ -30,30 +33,30 @@ class Authentication {
       } else {
         result = await res.text();
       }
-      logger.fatal({
-        message: `Error: Homely replied with error code ${res.status}: ${res.statusText}`,
-        result,
-      });
-      process.exit();
+      logger.error(
+        { status: res.status, statusText: res.statusText, result },
+        'Homely auth request rejected'
+      );
+      const message = `Homely auth failed with status ${res.status}: ${res.statusText}`;
+      throw PERMANENT_AUTH_STATUSES.has(res.status)
+        ? new PermanentError(message)
+        : new Error(message);
     }
-    this.token = await res.json();
-    if (
-      !this.token.expires_in ||
-      !this.token.access_token ||
-      !this.token.refresh_token
-    ) {
-      const { access_token, refresh_token, ...rest } = this.token;
-      logger.fatal({
-        message: `Error: Token payload from Homely is missing required fields (access_token, expires_in, refresh_token)`,
-        object: rest, // Don't log token out in cleartext
-      });
-      process.exit();
+    const token: Token = await res.json();
+    if (!token.expires_in || !token.access_token || !token.refresh_token) {
+      const { access_token, refresh_token, ...rest } = token;
+      logger.error(
+        { object: rest }, // Don't log token out in cleartext
+        'Token payload from Homely is missing required fields (access_token, expires_in, refresh_token)'
+      );
+      throw new PermanentError(
+        'Homely auth returned malformed token payload'
+      );
     }
-    this.token.exp = Date.now() + this.token.expires_in * 1000;
+    token.exp = Date.now() + token.expires_in * 1000;
+    this.token = token;
     logger.info(
-      `Authenticated. Token expires at ${new Date(
-        this.token.exp
-      ).toISOString()}`
+      `Authenticated. Token expires at ${new Date(token.exp).toISOString()}`
     );
     return this.token;
   }
@@ -72,8 +75,21 @@ class Authentication {
         refresh_token: this.token.refresh_token,
       }),
     });
-    this.token = await res.json();
-    this.token.exp = Date.now() + (this.token.expires_in - 50) * 1000;
+    if (res.status >= 400) {
+      throw new Error(
+        `Homely refresh-token failed with status ${res.status}: ${res.statusText}`
+      );
+    }
+    const refreshed: Token = await res.json();
+    if (
+      !refreshed.expires_in ||
+      !refreshed.access_token ||
+      !refreshed.refresh_token
+    ) {
+      throw new Error('Homely refresh-token returned malformed token payload');
+    }
+    refreshed.exp = Date.now() + (refreshed.expires_in - 50) * 1000;
+    this.token = refreshed;
     return this.token;
   }
 
@@ -85,13 +101,17 @@ class Authentication {
     if (this.token && this.token.exp > Date.now()) {
       logger.debug('Using cached token');
       return this.token;
-    } else if (this.token && this.token.exp < Date.now()) {
-      logger.debug('Refreshing token');
-      return await this.refreshToken();
-    } else {
-      logger.debug('Authenticating');
-      return await this.auth();
     }
+    if (this.token) {
+      logger.debug('Refreshing token');
+      try {
+        return await this.refreshToken();
+      } catch (err) {
+        logger.warn({ err }, 'Refresh token failed; falling back to full re-auth');
+      }
+    }
+    logger.debug('Authenticating');
+    return await this.auth();
   }
 }
 
