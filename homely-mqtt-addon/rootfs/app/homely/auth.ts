@@ -1,7 +1,10 @@
 import fetch from 'node-fetch';
 import { Token } from '../models/token';
 import { logger } from '../utils/logger';
+import { PermanentError } from '../utils/retry';
 import config from 'config';
+
+const PERMANENT_AUTH_STATUSES = new Set([400, 401, 403]);
 
 const host = config.get<string>('homely.host');
 const uri = `https://${host}/homely`;
@@ -30,22 +33,25 @@ class Authentication {
       } else {
         result = await res.text();
       }
-      logger.error({
-        message: `Homely replied with error code ${res.status}: ${res.statusText}`,
-        result,
-      });
-      throw new Error(
-        `Homely auth failed with status ${res.status}: ${res.statusText}`
+      logger.error(
+        { status: res.status, statusText: res.statusText, result },
+        'Homely auth request rejected'
       );
+      const message = `Homely auth failed with status ${res.status}: ${res.statusText}`;
+      throw PERMANENT_AUTH_STATUSES.has(res.status)
+        ? new PermanentError(message)
+        : new Error(message);
     }
     const token: Token = await res.json();
     if (!token.expires_in || !token.access_token || !token.refresh_token) {
       const { access_token, refresh_token, ...rest } = token;
-      logger.error({
-        message: `Token payload from Homely is missing required fields (access_token, expires_in, refresh_token)`,
-        object: rest, // Don't log token out in cleartext
-      });
-      throw new Error('Homely auth returned malformed token payload');
+      logger.error(
+        { object: rest }, // Don't log token out in cleartext
+        'Token payload from Homely is missing required fields (access_token, expires_in, refresh_token)'
+      );
+      throw new PermanentError(
+        'Homely auth returned malformed token payload'
+      );
     }
     token.exp = Date.now() + token.expires_in * 1000;
     this.token = token;
@@ -96,14 +102,12 @@ class Authentication {
       logger.debug('Using cached token');
       return this.token;
     }
-    if (this.token && this.token.exp <= Date.now()) {
+    if (this.token) {
       logger.debug('Refreshing token');
       try {
         return await this.refreshToken();
-      } catch (ex) {
-        logger.warn(
-          `Refresh token failed (${ex}); falling back to full re-auth`
-        );
+      } catch (err) {
+        logger.warn({ err }, 'Refresh token failed; falling back to full re-auth');
       }
     }
     logger.debug('Authenticating');

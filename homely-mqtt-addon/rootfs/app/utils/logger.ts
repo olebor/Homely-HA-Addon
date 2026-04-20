@@ -6,6 +6,7 @@ const logLevel = config.get<Config['logLevel']>('logLevel');
 
 export const logger = pino({
   level: logLevel ?? 'info',
+  serializers: { err: pino.stdSerializers.err },
   transport: {
     target: 'pino-pretty',
     options: {

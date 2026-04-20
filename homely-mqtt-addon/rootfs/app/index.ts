@@ -16,7 +16,7 @@ import {
 import { scheduleJob } from 'node-schedule';
 import { HomelyFeature } from './db';
 import { HomelyAlarmStateToHomeAssistant } from './models/alarm-state';
-import { retryWithBackoff } from './utils/retry';
+import { retryWithBackoff, STARTUP_RETRY } from './utils/retry';
 
 dotenv.config();
 
@@ -41,11 +41,11 @@ const pollHomely = (locationId: string) => {
     try {
       const homeData = await home(locationId);
       await updateAndCreateEntities(homeData);
-    } catch (ex) {
-      logger.error({
-        message: `Poll for location ${locationId} failed; will retry on next schedule`,
-        error: ex,
-      });
+    } catch (err) {
+      logger.error(
+        { err, locationId },
+        'Poll failed; will retry on next schedule'
+      );
     }
   });
 };
@@ -91,18 +91,16 @@ process.on('exit', () => {
   await init();
 
   const homes = await retryWithBackoff(() => locations(), {
+    ...STARTUP_RETRY,
     label: 'startup-locations',
-    initialDelayMs: 5_000,
-    maxDelayMs: 300_000,
   });
   logger.info(`Loaded ${homes.length} homes`);
   logger.debug(homes);
 
   for (const location of homes) {
     const homeData = await retryWithBackoff(() => home(location.locationId), {
+      ...STARTUP_RETRY,
       label: `startup-home:${location.locationId}`,
-      initialDelayMs: 5_000,
-      maxDelayMs: 300_000,
     });
     if (process.env.GET_LOCATION) {
       logger.debug({
@@ -116,6 +114,11 @@ process.on('exit', () => {
         ${JSON.stringify(homeData, null, 2)}`);
     await updateAndCreateEntities(homeData);
     pollHomely(location.locationId);
-    await listenToSocket(location.locationId);
+    listenToSocket(location.locationId).catch((err) =>
+      logger.error(
+        { err, locationId: location.locationId },
+        '[WS] initial connect gave up'
+      )
+    );
   }
 })();

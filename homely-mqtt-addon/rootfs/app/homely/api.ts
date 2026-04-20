@@ -4,7 +4,7 @@ import io from 'socket.io-client';
 import { HomelySocket } from '../models/homely-socket';
 import { authenticator } from './auth';
 import { logger } from '../utils/logger';
-import { retryWithBackoff } from '../utils/retry';
+import { retryWithBackoff, WS_RETRY } from '../utils/retry';
 import config from 'config';
 import { Config } from '../models/config';
 import { HomelyDevice, HomelyFeature } from '../db';
@@ -15,6 +15,8 @@ const uri = `https://${config.get<Config['homely']['host']>(
   'homely.host'
 )}/homely`;
 const wsUri = `wss://${config.get<Config['homely']['host']>('homely.host')}`;
+
+const CONNECT_TIMEOUT_MS = 20_000;
 
 /**
  * Get all locations for the authenticated user.
@@ -55,14 +57,11 @@ function attachEventHandlers(
   socket: SocketIOClient.Socket,
   locationId: string
 ) {
-  socket.on('connect_error', (err: unknown) => {
-    logger.error(`[WS] Connection error: ${err}`);
-  });
   socket.on('error', (err: unknown) => {
-    logger.error(`[WS] Error: ${err}`);
+    logger.error({ err, locationId }, '[WS] transport error');
   });
-  socket.on('disconnect', (e: string) => {
-    logger.warn(`[WS] Disconnected from homely socket: ${e}`);
+  socket.on('disconnect', (reason: string) => {
+    logger.warn({ reason, locationId }, '[WS] Disconnected from homely socket');
     scheduleReconnect(locationId);
   });
   socket.on('event', async function (data: HomelySocket) {
@@ -138,8 +137,9 @@ function attachEventHandlers(
 
 /**
  * Opens a single websocket connection and resolves once it emits `connect`,
- * or rejects if it emits `connect_error` first. Caller is responsible for
- * retrying on rejection.
+ * or rejects if it emits `connect_error` or exceeds the connect timeout.
+ * Caller is responsible for retrying on rejection. Persistent event handlers
+ * are attached before the connect handshake so early messages aren't dropped.
  */
 async function connectOnce(locationId: string): Promise<void> {
   const token = await authenticator.getToken();
@@ -149,33 +149,42 @@ async function connectOnce(locationId: string): Promise<void> {
       reconnection: false,
       transports: ['websocket'],
       autoConnect: true,
+      timeout: CONNECT_TIMEOUT_MS,
       transportOptions: {
         polling: {
           extraHeaders: {
             Authorization: `Bearer ${token.access_token}`,
           },
         },
-      }
+      },
     }
   );
 
+  attachEventHandlers(socket, locationId);
+
   return new Promise<void>((resolve, reject) => {
     let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      socket.removeAllListeners();
+      socket.close();
+      reject(new Error(`[WS] connect timeout after ${CONNECT_TIMEOUT_MS}ms`));
+    }, CONNECT_TIMEOUT_MS);
+
     socket.once('connect', () => {
       if (settled) return;
       settled = true;
+      clearTimeout(timer);
       logger.info(`[WS] Connected to homely for location ${locationId}`);
-      attachEventHandlers(socket, locationId);
       resolve();
     });
     socket.once('connect_error', (err: unknown) => {
       if (settled) return;
       settled = true;
-      try {
-        socket.close();
-      } catch {
-        /* ignore */
-      }
+      clearTimeout(timer);
+      socket.removeAllListeners();
+      socket.close();
       reject(new Error(`[WS] connect_error: ${err}`));
     });
   });
@@ -191,12 +200,11 @@ function scheduleReconnect(locationId: string) {
   reconnectingByLocation.set(locationId, true);
   logger.info(`[WS] Scheduling reconnect for ${locationId}`);
   retryWithBackoff(() => connectOnce(locationId), {
+    ...WS_RETRY,
     label: `ws-reconnect:${locationId}`,
-    initialDelayMs: 2_000,
-    maxDelayMs: 60_000,
   })
     .catch((err) => {
-      logger.error(`[WS] Reconnect gave up for ${locationId}: ${err}`);
+      logger.error({ err, locationId }, '[WS] Reconnect gave up');
     })
     .finally(() => {
       reconnectingByLocation.set(locationId, false);
@@ -210,8 +218,7 @@ function scheduleReconnect(locationId: string) {
  */
 export async function listenToSocket(locationId: string) {
   await retryWithBackoff(() => connectOnce(locationId), {
+    ...WS_RETRY,
     label: `ws-connect:${locationId}`,
-    initialDelayMs: 2_000,
-    maxDelayMs: 60_000,
   });
 }
