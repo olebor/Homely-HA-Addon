@@ -11,6 +11,7 @@ const prefix = config.get<Config['mqtt']>('mqtt').entityPrefix;
  */
 export const createEntitiesMqtt = async () => {
   const newFeatures = await HomelyFeature.findAll({
+    where: { published: false },
     include: {
       all: true,
     },
@@ -90,7 +91,7 @@ async function* staggerEntities<T>(
 ): AsyncIterable<ReturnStagger<T>> {
   for (const entity of entities) {
     yield { value: entity, done: false };
-    await new Promise<void>((r) => setTimeout(() => r(), 500));
+    await new Promise<void>((r) => setTimeout(() => r(), 50));
   }
   yield {
     value: null,
