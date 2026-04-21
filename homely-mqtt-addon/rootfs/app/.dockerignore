@@ -2,3 +2,7 @@ node_modules
 dist
 .env
 Dockerfile
+**/*.test.ts
+__test__
+vitest.config.ts
+coverage

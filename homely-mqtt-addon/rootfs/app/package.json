@@ -5,9 +5,12 @@
   "main": "dist/index.js",
   "scripts": {
     "prestart": "npm run build",
-    "start": "node dist/index.js",  
-    "dev": "nodemon index.ts",    
+    "start": "node dist/index.js",
+    "dev": "nodemon index.ts",
     "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "build:docker": "docker build -t yusijs/homely-mqtt:latest -t yusijs/homely-mqtt:$(git rev-parse HEAD) .",
     "publish:docker": "docker push --all-tags yusijs/homely-mqtt",
     "build-publish:docker": "npm run build:docker && npm run publish:docker"
@@ -41,10 +44,12 @@
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^6.2.1",
     "@typescript-eslint/parser": "^6.2.1",
+    "@vitest/coverage-v8": "^1.6.1",
     "eslint": "^8.46.0",
     "eslint-plugin-prettier": "^5.0.0",
     "nodemon": "^3.0.1",
     "prettier": "^3.0.0",
-    "ts-node": "^10.9.1"
+    "ts-node": "^10.9.1",
+    "vitest": "^1.6.1"
   }
 }
